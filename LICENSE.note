@@ -1,0 +1,2 @@
+This skeleton intentionally does not include BusyBox or Droidspaces source/binaries.
+Follow the upstream project licenses when integrating actual binaries.

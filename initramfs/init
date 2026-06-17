@@ -1,0 +1,108 @@
+#!/bin/busybox sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Minimal Droidspaces appliance initramfs entrypoint.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+panic_shell() {
+    echo "[dsinit] entering emergency shell: $*" >/dev/console
+    exec /bin/sh </dev/console >/dev/console 2>&1
+}
+
+log() {
+    echo "[dsinit] $*" >/dev/console
+}
+
+cmdline_get() {
+    key="$1"
+    default="$2"
+    value="$default"
+    for arg in $(cat /proc/cmdline 2>/dev/null); do
+        case "$arg" in
+            "$key"=*) value="${arg#*=}" ;;
+        esac
+    done
+    printf '%s\n' "$value"
+}
+
+mount_once() {
+    type="$1"
+    source="$2"
+    target="$3"
+    opts="${4:-}"
+    mkdir -p "$target"
+    if grep -q " $target " /proc/mounts 2>/dev/null; then
+        return 0
+    fi
+    if [ -n "$opts" ]; then
+        mount -t "$type" -o "$opts" "$source" "$target"
+    else
+        mount -t "$type" "$source" "$target"
+    fi
+}
+
+# Keep this first. Other applet links are installed after /bin exists.
+/bin/busybox --install -s /bin 2>/dev/null || true
+/bin/busybox --install -s /sbin 2>/dev/null || true
+
+# The console may already exist through devtmpfs later, but make enough nodes for early logging.
+[ -e /dev ] || mkdir -p /dev
+[ -c /dev/console ] || mknod /dev/console c 5 1 2>/dev/null || true
+[ -c /dev/null ] || mknod /dev/null c 1 3 2>/dev/null || true
+
+exec </dev/console >/dev/console 2>&1
+
+log "booting Droidspaces initramfs"
+
+mount_once proc proc /proc || panic_shell "failed to mount /proc"
+mount_once sysfs sysfs /sys || panic_shell "failed to mount /sys"
+
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev || panic_shell "failed to mount /dev"
+mkdir -p /dev/pts /run /tmp /mnt/host /mnt/containers
+chmod 1777 /tmp
+mount -t devpts devpts /dev/pts -o newinstance,ptmxmode=0666,mode=0620,gid=5 2>/dev/null || \
+    mount -t devpts devpts /dev/pts -o ptmxmode=0666,mode=0620,gid=5 2>/dev/null || \
+    panic_shell "failed to mount /dev/pts"
+
+# Hotplug is optional; most appliance kernels should provide devtmpfs.
+echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || true
+mdev -s 2>/dev/null || true
+
+ip link set lo up 2>/dev/null || true
+ip link set eth0 up 2>/dev/null || true
+udhcpc -i eth0 -q -s /bin/true 2>/dev/null || true
+
+MODE="$(cmdline_get droidspaces.mode run)"
+SHARE_TAG="$(cmdline_get droidspaces.share_tag dsdata)"
+CONFIG_PATH="$(cmdline_get droidspaces.config /mnt/host/Config/desired-state.conf)"
+
+if [ "$MODE" = "shell" ]; then
+    panic_shell "requested droidspaces.mode=shell"
+fi
+
+log "mounting host share tag=$SHARE_TAG"
+mount -t virtiofs "$SHARE_TAG" /mnt/host 2>/dev/null || panic_shell "failed to mount virtiofs tag $SHARE_TAG at /mnt/host"
+
+# After host share is present, duplicate subsequent logs to a file when possible.
+mkdir -p /mnt/host/Logs
+{
+    echo "[dsinit] host share mounted"
+    echo "[dsinit] kernel cmdline: $(cat /proc/cmdline)"
+} >> /mnt/host/Logs/boot.log 2>/dev/null || true
+
+/usr/lib/droidspaces-initramfs/prepare-host-share.sh /mnt/host || panic_shell "host-share preparation failed"
+
+if [ -f "$CONFIG_PATH" ]; then
+    log "using config: $CONFIG_PATH"
+else
+    log "config not found: $CONFIG_PATH; continuing with defaults"
+fi
+
+/usr/lib/droidspaces-initramfs/import-images.sh /mnt/host "$CONFIG_PATH" || panic_shell "image import failed"
+
+if [ "$MODE" = "prepare-only" ]; then
+    panic_shell "requested droidspaces.mode=prepare-only"
+fi
+
+log "starting Droidspaces"
+exec /sbin/droidspaces "$@"
