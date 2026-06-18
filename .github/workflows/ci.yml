@@ -76,7 +76,7 @@ jobs:
 
     env:
       DROIDSPACES_COMPILER_RELEASE: https://api.github.com/repos/ravindu644/Droidspaces-OSS/releases/tags/compilers-25843896720
-      BUSYBOX_CONFIG: droidspaces.config
+      BUSYBOX_CONFIG: configs/busybox-dsvz-initramfs.config
       ENABLE_SOCKETD_BACKEND: '0'
 
     steps:

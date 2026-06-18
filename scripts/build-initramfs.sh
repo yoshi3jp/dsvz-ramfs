@@ -92,7 +92,7 @@ chmod 1777 "$STAGE/tmp"
 
 (
     cd "$STAGE"
-    find . -print0 | cpio --null -ov --format=newc
+    find . -print0 | cpio --null -ov --format=newc --owner=0:0
 ) | gzip -9 > "$DIST/initramfs.cpio.gz"
 
 (

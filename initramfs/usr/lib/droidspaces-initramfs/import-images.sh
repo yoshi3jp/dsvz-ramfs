@@ -83,7 +83,7 @@ for name in $names; do
             fi
             ;;
         *.tar.xz|*.txz)
-            xzcat "$tar_path" | tar -C /mnt/containers/"$name" -xpf -
+            xz -dc "$tar_path" | tar -C /mnt/containers/"$name" -xpf -
             ;;
         *.tar.gz|*.tgz)
             gzip -dc "$tar_path" | tar -C /mnt/containers/"$name" -xpf -

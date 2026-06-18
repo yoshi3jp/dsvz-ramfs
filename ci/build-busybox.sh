@@ -96,8 +96,41 @@ cd "$SCRIPT_DIR"
 
 make clean >/dev/null 2>&1 || true
 
-echo "using droidspaces BusyBox config as the base config"
+echo "using dsvz BusyBox config"
 cp "$CONFIG_PATH" .config
+
+require_config_y() {
+    symbol="$1"
+    if ! grep -q "^${symbol}=y$" .config; then
+        echo "required BusyBox option missing: ${symbol}=y" >&2
+        exit 1
+    fi
+}
+
+for symbol in \
+    CONFIG_ASH \
+    CONFIG_SH_IS_ASH \
+    CONFIG_FEATURE_SH_STANDALONE \
+    CONFIG_MOUNT \
+    CONFIG_UMOUNT \
+    CONFIG_TAR \
+    CONFIG_GZIP \
+    CONFIG_GUNZIP \
+    CONFIG_XZ \
+    CONFIG_UNXZ \
+    CONFIG_XZCAT \
+    CONFIG_LOSETUP \
+    CONFIG_TRUNCATE \
+    CONFIG_MKE2FS \
+    CONFIG_MKFS_EXT2 \
+    CONFIG_MDEV \
+    CONFIG_IP \
+    CONFIG_IPLINK \
+    CONFIG_UDHCPC \
+    CONFIG_TRUE
+do
+    require_config_y "$symbol"
+done
 
 # The initramfs must not depend on a dynamic loader.  build-bb.sh also passes
 # CONFIG_STATIC=y on the make command line; keep the copied config honest too
