@@ -81,8 +81,9 @@ jobs:
       DROIDSPACES_COMPILER_RELEASE: https://api.github.com/repos/ravindu644/Droidspaces-OSS/releases/tags/compilers-25843896720
       BUSYBOX_CONFIG: configs/busybox-dsvz-initramfs.config
       ENABLE_SOCKETD_BACKEND: '0'
-      VZ_KERNEL_ARM64_URL: ${{ vars.VZ_KERNEL_ARM64_URL }}
-      VZ_KERNEL_X86_64_URL: ${{ vars.VZ_KERNEL_X86_64_URL }}
+      GITHUB_TOKEN: ${{ github.token }}
+      VZ_KERNEL_ARM64_URL: https://github.com/yoshi3jp/vz-kernel/releases/download/v6.12.93/kernel-arm64-6.12.93.tar.zst
+      VZ_KERNEL_X86_64_URL: https://github.com/yoshi3jp/vz-kernel/releases/download/v6.12.93/kernel-x86_64-6.12.93.tar.zst
 
     steps:
       - name: Check out dsvz-ramfs
