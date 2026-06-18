@@ -81,6 +81,12 @@ if [ "$MODE" = "shell" ]; then
     panic_shell "requested droidspaces.mode=shell"
 fi
 
+if [ "$MODE" = "smoke" ]; then
+    log "smoke mode reached"
+    echo "DSVZ_RAMFS_SMOKE_OK" >/dev/console
+    exec /bin/sh </dev/console >/dev/console 2>&1
+fi
+
 log "mounting host share tag=$SHARE_TAG"
 mount -t virtiofs "$SHARE_TAG" /mnt/host 2>/dev/null || panic_shell "failed to mount virtiofs tag $SHARE_TAG at /mnt/host"
 

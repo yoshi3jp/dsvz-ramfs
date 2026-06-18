@@ -56,6 +56,9 @@ jobs:
           test -x ci/build-busybox.sh
           test -x ci/build-droidspaces.sh
           test -x ci/verify-static-libc.sh
+          test -x ci/fetch-vz-kernel.sh
+          test -x scripts/chroot-smoke.sh
+          test -x scripts/qemu-smoke.sh
 
   build:
     name: Build initramfs (${{ matrix.arch }})
@@ -78,6 +81,8 @@ jobs:
       DROIDSPACES_COMPILER_RELEASE: https://api.github.com/repos/ravindu644/Droidspaces-OSS/releases/tags/compilers-25843896720
       BUSYBOX_CONFIG: configs/busybox-dsvz-initramfs.config
       ENABLE_SOCKETD_BACKEND: '0'
+      VZ_KERNEL_ARM64_URL: ${{ vars.VZ_KERNEL_ARM64_URL }}
+      VZ_KERNEL_X86_64_URL: ${{ vars.VZ_KERNEL_X86_64_URL }}
 
     steps:
       - name: Check out dsvz-ramfs
@@ -103,7 +108,9 @@ jobs:
             tar \
             unzip \
             xz-utils \
-            zstd
+            zstd \
+            qemu-system-arm \
+            qemu-system-x86
 
       - name: Install musl cross toolchain
         run: |
@@ -168,6 +175,45 @@ jobs:
           ls -lh "dist/${{ matrix.arch }}/initramfs.cpio.gz"
           cat "dist/${{ matrix.arch }}/manifest.txt"
 
+      - name: Chroot smoke test
+        run: |
+          set -eu
+          sudo scripts/chroot-smoke.sh \
+            --arch "${{ matrix.arch }}" \
+            --initramfs "$PWD/dist/${{ matrix.arch }}/initramfs.cpio.gz"
+
+      - name: Fetch vz-kernel artifact
+        run: |
+          set -eu
+          case "${{ matrix.arch }}" in
+            arm64) kernel_url="$VZ_KERNEL_ARM64_URL" ;;
+            x86_64) kernel_url="$VZ_KERNEL_X86_64_URL" ;;
+            *) echo "unsupported arch: ${{ matrix.arch }}" >&2; exit 2 ;;
+          esac
+          if [ -z "$kernel_url" ]; then
+            echo "missing vz-kernel artifact URL for ${{ matrix.arch }}" >&2
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              echo "Set repository variable VZ_KERNEL_ARM64_URL." >&2
+            else
+              echo "Set repository variable VZ_KERNEL_X86_64_URL." >&2
+            fi
+            exit 1
+          fi
+          ci/fetch-vz-kernel.sh \
+            --arch "${{ matrix.arch }}" \
+            --url "$kernel_url" \
+            --output "$PWD/out/${{ matrix.arch }}/vz-kernel"
+
+      - name: QEMU smoke test with vz-kernel
+        run: |
+          set -eu
+          scripts/qemu-smoke.sh \
+            --arch "${{ matrix.arch }}" \
+            --kernel "$PWD/out/${{ matrix.arch }}/vz-kernel/kernel" \
+            --initramfs "$PWD/dist/${{ matrix.arch }}/initramfs.cpio.gz" \
+            --log "$PWD/out/${{ matrix.arch }}/qemu-smoke.log" \
+            --timeout 45
+
       - name: Upload initramfs artifact
         uses: actions/upload-artifact@v4
         with:
@@ -175,4 +221,5 @@ jobs:
           path: |
             dist/${{ matrix.arch }}/initramfs.cpio.gz
             dist/${{ matrix.arch }}/manifest.txt
+            out/${{ matrix.arch }}/qemu-smoke.log
           if-no-files-found: error
