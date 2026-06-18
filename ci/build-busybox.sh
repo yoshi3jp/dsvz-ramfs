@@ -77,10 +77,18 @@ if [ -f "$SCRIPT_DIR/$CONFIG" ]; then
 elif [ -f "$SCRIPT_DIR/configs/$CONFIG" ]; then
     CONFIG_PATH="$SCRIPT_DIR/configs/$CONFIG"
 elif [ -f "$CONFIG" ]; then
-    CONFIG_PATH="$CONFIG"
+    # CONFIG may refer to a file in the dsvz-ramfs checkout, while this
+    # script later cd's into the BusyBox checkout.  Resolve it now so the
+    # copy remains valid after changing directory.
+    CONFIG_DIR=$(dirname -- "$CONFIG")
+    CONFIG_BASE=$(basename -- "$CONFIG")
+    CONFIG_PATH="$(cd "$CONFIG_DIR" && pwd)/$CONFIG_BASE"
 else
     echo "BusyBox config not found: $CONFIG" >&2
-    echo "Expected the in-house BusyBox config, normally droidspaces.config." >&2
+    echo "Looked for:" >&2
+    echo "  $SCRIPT_DIR/$CONFIG" >&2
+    echo "  $SCRIPT_DIR/configs/$CONFIG" >&2
+    echo "  $CONFIG" >&2
     exit 1
 fi
 
