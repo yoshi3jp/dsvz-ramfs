@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out dsvz-ramfs
+        uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Check shell syntax
+        run: |
+          set -eu
+          find . \
+            -type f \
+            \( -name '*.sh' -o -name 'init' \) \
+            -print \
+            | sort \
+            | while IFS= read -r file; do
+                echo "syntax: $file"
+                sh -n "$file"
+              done
+
+      - name: Run shellcheck
+        run: |
+          set -eu
+          find . \
+            -type f \
+            \( -name '*.sh' -o -name 'init' \) \
+            -print \
+            | sort \
+            | xargs shellcheck -S warning
+
+      - name: Check required executable files
+        run: |
+          set -eu
+          test -x scripts/build-initramfs.sh
+          test -x initramfs/init
+          test -x ci/install-musl-toolchain.sh
+          test -x ci/build-busybox.sh
+          test -x ci/build-droidspaces.sh
+          test -x ci/verify-static-libc.sh
+
+  build:
+    name: Build initramfs (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs:
+      - validate
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            triplet: aarch64-linux-musl
+            droidspaces_target: aarch64
+          - arch: x86_64
+            triplet: x86_64-linux-musl
+            droidspaces_target: x86_64
+
+    env:
+      DROIDSPACES_COMPILER_RELEASE: https://api.github.com/repos/ravindu644/Droidspaces-OSS/releases/tags/compilers-25843896720
+      BUSYBOX_CONFIG: droidspaces.config
+      ENABLE_SOCKETD_BACKEND: '0'
+
+    steps:
+      - name: Check out dsvz-ramfs
+        uses: actions/checkout@v4
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils \
+            bison \
+            build-essential \
+            cpio \
+            curl \
+            file \
+            flex \
+            git \
+            jq \
+            make \
+            perl \
+            python3 \
+            rsync \
+            tar \
+            unzip \
+            xz-utils \
+            zstd
+
+      - name: Install musl cross toolchain
+        run: |
+          set -eu
+          ci/install-musl-toolchain.sh \
+            --triplet "${{ matrix.triplet }}" \
+            --arch "${{ matrix.arch }}" \
+            --release-api "$DROIDSPACES_COMPILER_RELEASE"
+
+      - name: Check out busybox-droidspaces
+        uses: actions/checkout@v4
+        with:
+          repository: Droidspaces/busybox-droidspaces
+          path: external/busybox-droidspaces
+
+      - name: Check out Droidspaces native C sources
+        uses: actions/checkout@v4
+        with:
+          repository: ravindu644/Droidspaces-OSS
+          path: external/Droidspaces-OSS
+
+      - name: Build BusyBox with musl
+        run: |
+          set -eu
+          ci/build-busybox.sh \
+            --repo external/busybox-droidspaces \
+            --triplet "${{ matrix.triplet }}" \
+            --config "$BUSYBOX_CONFIG" \
+            --output "$PWD/out/${{ matrix.arch }}/busybox"
+
+      - name: Build Droidspaces native C binary with musl
+        run: |
+          set -eu
+          ci/build-droidspaces.sh \
+            --repo external/Droidspaces-OSS \
+            --target "${{ matrix.droidspaces_target }}" \
+            --triplet "${{ matrix.triplet }}" \
+            --enable-socketd-backend "$ENABLE_SOCKETD_BACKEND" \
+            --output "$PWD/out/${{ matrix.arch }}/droidspaces"
+
+      - name: Verify static musl invariants
+        run: |
+          set -eu
+          ci/verify-static-libc.sh \
+            --arch "${{ matrix.arch }}" \
+            --triplet "${{ matrix.triplet }}" \
+            --binary "$PWD/out/${{ matrix.arch }}/busybox" \
+            --binary "$PWD/out/${{ matrix.arch }}/droidspaces"
+
+      - name: Build initramfs
+        run: |
+          set -eu
+          make \
+            ARCH="${{ matrix.arch }}" \
+            BUSYBOX="$PWD/out/${{ matrix.arch }}/busybox" \
+            DROIDSPACES="$PWD/out/${{ matrix.arch }}/droidspaces"
+
+      - name: Verify initramfs artifact
+        run: |
+          set -eu
+          test -s "dist/${{ matrix.arch }}/initramfs.cpio.gz"
+          ls -lh "dist/${{ matrix.arch }}/initramfs.cpio.gz"
+          cat "dist/${{ matrix.arch }}/manifest.txt"
+
+      - name: Upload initramfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsvz-ramfs-${{ matrix.arch }}
+          path: |
+            dist/${{ matrix.arch }}/initramfs.cpio.gz
+            dist/${{ matrix.arch }}/manifest.txt
+          if-no-files-found: error
