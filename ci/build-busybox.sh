@@ -137,3 +137,4 @@ echo "BusyBox applet sanity check"
 "$OUTPUT" --list | grep -x tar >/dev/null
 "$OUTPUT" --list | grep -x losetup >/dev/null || {
     echo "warning: losetup applet is not enabled; sparse image import may require it later" >&2
+}
