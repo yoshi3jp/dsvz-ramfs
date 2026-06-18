@@ -34,7 +34,7 @@ if [ -n "$ZSTD" ]; then
     [ -x "$ZSTD" ] || { echo "zstd not executable: $ZSTD" >&2; exit 1; }
 fi
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
 OUT="$ROOT/out/$ARCH"
 STAGE="$OUT/stage"
 DIST="$ROOT/dist/$ARCH"
