@@ -73,7 +73,18 @@ The first milestone is a bootable initramfs that:
 1. mounts proc/sys/dev/devpts,
 2. mounts the host VirtIO-FS share,
 3. creates the expected host directories,
-4. starts a Droidspaces-oriented boot path, or falls back to an emergency shell with useful diagnostics.
+4. retains `/init` as host PID 1 and starts Droidspaces as a supervised child,
+5. forwards lifecycle signals to the Droidspaces child, and falls back to a reusable supervisor shell with useful diagnostics when Droidspaces or early setup exits.
+
+## Host PID 1 supervision
+
+`/init` is the host PID 1 for the life of the guest. It must not `exec` the
+Droidspaces binary. Instead, it starts Droidspaces as an immediate child,
+waits for that child, forwards `TERM`, `INT`, `HUP`, and `QUIT`, logs its exit
+status, and opens a reusable console shell if the child exits.
+
+Droidspaces may create PID 1 inside a container PID namespace. That is distinct
+from, and must not replace, the initramfs host PID 1.
 
 ## Build
 

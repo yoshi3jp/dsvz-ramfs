@@ -5,9 +5,17 @@
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
-panic_shell() {
-    echo "[dsinit] entering emergency shell: $*" >/dev/console
-    exec /bin/sh </dev/console >/dev/console 2>&1
+supervisor_shell() {
+    DSINIT_SHELL_REASON="$*"
+
+    while :; do
+        echo "[dsinit] supervisor shell: $DSINIT_SHELL_REASON" >/dev/console
+        echo "[dsinit] type exit to reopen the shell; PID 1 remains active" >/dev/console
+        /bin/sh </dev/console >/dev/console 2>&1
+        DSINIT_SHELL_STATUS=$?
+        echo "[dsinit] supervisor shell exited status=$DSINIT_SHELL_STATUS; reopening" >/dev/console
+        sleep 1
+    done
 }
 
 log() {
@@ -53,17 +61,32 @@ mount_once() {
 
 exec </dev/console >/dev/console 2>&1
 
+# Keep host PID 1 in this script. Droidspaces is supervised as a child;
+# container PID 1 remains a separate concern inside a container PID namespace.
+if ! . /usr/lib/droidspaces-initramfs/supervise-droidspaces.sh; then
+    supervisor_shell "failed to load Droidspaces supervisor"
+fi
+
+handle_droidspaces_signal() {
+    droidspaces_forward_signal "$1"
+}
+
+trap 'handle_droidspaces_signal TERM' TERM
+trap 'handle_droidspaces_signal INT' INT
+trap 'handle_droidspaces_signal HUP' HUP
+trap 'handle_droidspaces_signal QUIT' QUIT
+
 log "booting Droidspaces initramfs"
 
-mount_once proc proc /proc || panic_shell "failed to mount /proc"
-mount_once sysfs sysfs /sys || panic_shell "failed to mount /sys"
+mount_once proc proc /proc || supervisor_shell "failed to mount /proc"
+mount_once sysfs sysfs /sys || supervisor_shell "failed to mount /sys"
 
-mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev || panic_shell "failed to mount /dev"
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev || supervisor_shell "failed to mount /dev"
 mkdir -p /dev/pts /run /tmp /mnt/host /mnt/containers
 chmod 1777 /tmp
 mount -t devpts devpts /dev/pts -o newinstance,ptmxmode=0666,mode=0620,gid=5 2>/dev/null || \
     mount -t devpts devpts /dev/pts -o ptmxmode=0666,mode=0620,gid=5 2>/dev/null || \
-    panic_shell "failed to mount /dev/pts"
+    supervisor_shell "failed to mount /dev/pts"
 
 # Hotplug is optional; most appliance kernels should provide devtmpfs.
 echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || true
@@ -78,17 +101,17 @@ SHARE_TAG="$(cmdline_get droidspaces.share_tag dsdata)"
 CONFIG_PATH="$(cmdline_get droidspaces.config /mnt/host/Config/desired-state.conf)"
 
 if [ "$MODE" = "shell" ]; then
-    panic_shell "requested droidspaces.mode=shell"
+    supervisor_shell "requested droidspaces.mode=shell"
 fi
 
 if [ "$MODE" = "smoke" ]; then
     log "smoke mode reached"
     echo "DSVZ_RAMFS_SMOKE_OK" >/dev/console
-    exec /bin/sh </dev/console >/dev/console 2>&1
+    supervisor_shell "smoke mode completed"
 fi
 
 log "mounting host share tag=$SHARE_TAG"
-mount -t virtiofs "$SHARE_TAG" /mnt/host 2>/dev/null || panic_shell "failed to mount virtiofs tag $SHARE_TAG at /mnt/host"
+mount -t virtiofs "$SHARE_TAG" /mnt/host 2>/dev/null || supervisor_shell "failed to mount virtiofs tag $SHARE_TAG at /mnt/host"
 
 # After host share is present, duplicate subsequent logs to a file when possible.
 mkdir -p /mnt/host/Logs
@@ -97,7 +120,7 @@ mkdir -p /mnt/host/Logs
     echo "[dsinit] kernel cmdline: $(cat /proc/cmdline)"
 } >> /mnt/host/Logs/boot.log 2>/dev/null || true
 
-/usr/lib/droidspaces-initramfs/prepare-host-share.sh /mnt/host || panic_shell "host-share preparation failed"
+/usr/lib/droidspaces-initramfs/prepare-host-share.sh /mnt/host || supervisor_shell "host-share preparation failed"
 
 if [ -f "$CONFIG_PATH" ]; then
     log "using config: $CONFIG_PATH"
@@ -105,11 +128,16 @@ else
     log "config not found: $CONFIG_PATH; continuing with defaults"
 fi
 
-/usr/lib/droidspaces-initramfs/import-images.sh /mnt/host "$CONFIG_PATH" || panic_shell "image import failed"
+/usr/lib/droidspaces-initramfs/import-images.sh /mnt/host "$CONFIG_PATH" || supervisor_shell "image import failed"
 
 if [ "$MODE" = "prepare-only" ]; then
-    panic_shell "requested droidspaces.mode=prepare-only"
+    supervisor_shell "requested droidspaces.mode=prepare-only"
 fi
 
-log "starting Droidspaces"
-exec /sbin/droidspaces "$@"
+log "starting Droidspaces under host PID 1 supervision"
+droidspaces_start "$@" || supervisor_shell "failed to start Droidspaces"
+droidspaces_wait
+DSINIT_DROIDSPACES_STATUS=$?
+
+log "Droidspaces exited status=$DSINIT_DROIDSPACES_STATUS; preserving supervisor"
+supervisor_shell "Droidspaces exited status=$DSINIT_DROIDSPACES_STATUS"

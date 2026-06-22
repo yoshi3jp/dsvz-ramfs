@@ -22,6 +22,18 @@ droidspaces.mode=shell
 droidspaces.mode=prepare-only
 ```
 
+
+## Host PID 1 supervisor
+
+`/init` remains host PID 1. It starts `/sbin/droidspaces` as a supervised
+child rather than using `exec`. If Droidspaces exits, host PID 1 records the
+exit status and keeps the guest alive in a reusable console supervisor shell.
+
+Signals `TERM`, `INT`, `HUP`, and `QUIT` delivered to host PID 1 are forwarded
+to the immediate Droidspaces child while it is running. Container PID 1 is
+owned by Droidspaces inside the relevant container PID namespace and is not the
+host PID 1.
+
 ## Shared directory
 
 The macOS app should expose one writable host directory through `VZSingleDirectoryShare` and tag it `dsdata` unless overridden.
