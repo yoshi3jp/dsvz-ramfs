@@ -1,4 +1,5 @@
 #!/bin/busybox sh
+# shellcheck shell=dash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Minimal host-side Droidspaces supervisor.
